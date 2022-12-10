@@ -108,8 +108,12 @@ public class Parse{
          outfile.println(" {");
          outfile.println("    \"uuid\": \""+Nodes[i].uuid+"\",");
          outfile.println("    \"x\": \""+Nodes[i].x+"\",");
-         outfile.println("    \"y\": \""+Nodes[i].y+"\",");
-         outfile.println(" },");
+         outfile.println("    \"y\": \""+Nodes[i].y+"\"");
+         String temp = " },";
+         if (i == ind - 1) {
+            temp = " }";
+         }
+         outfile.println(temp);
       }
       outfile.println("]");
       outfile.flush();
@@ -198,25 +202,37 @@ public class Parse{
       
       PrintWriter outfile = new PrintWriter("Ways.json");
       outfile.println("[");
+      int counter2 = 0;
       for (int i = 0; i < ind; i++) {
          if (Ways[i].refs.size() >= 2) {
+            if (counter2 >= 1) {
+               outfile.println(",");
+            }
             outfile.println(" {");
             outfile.println("    \"uuid\": \"" + Ways[i].uuid+"\",");
             //outfile.println("    \"id\": \"" + Ways[i].id+"\",");
             outfile.println("    \"nodeUuidList\": [");
             for (int j = 0; j < Ways[i].refs.size(); j++) {
-               outfile.println("       \""+Ways[i].refs.get(j) + "\",");
+               String temp = "\",";
+               if (j == Ways[i].refs.size() - 1) {
+                  temp = "\"";
+               }
+               outfile.println("       \""+Ways[i].refs.get(j) + temp);
             }
-            outfile.println("    ],");
-            outfile.println(" },");
+            outfile.println("    ]");
+            outfile.print(" }");     
+            counter2++;
          }
+        
       }
+      outfile.println();
       outfile.println("]");
       outfile.flush();
       outfile.close();
    }
    
    public static void main(String[] args) throws IOException {
+      //change to txt extension
       String fileName = "map.txt";
       int ind = parseNodes(fileName);
       String nodeFile = "Nodes-ID.txt";

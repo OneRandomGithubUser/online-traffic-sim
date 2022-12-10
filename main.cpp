@@ -136,7 +136,7 @@ public:
   Workspace()
   {
     ticks = 0;
-    numCars = 4;
+    numCars = 100;
     verticesLoaded = false;
     waysLoaded = false;
   }
@@ -275,8 +275,8 @@ public:
       std::size_t ceil = std::ceil(position);
       auto& vertex0 = *(wayVertexPointerVector.at(floor));
       auto& vertex1 = *(wayVertexPointerVector.at(ceil));
-      auto posX = decimal * vertex0.get_x() + (1 - decimal) * vertex1.get_x();
-      auto posY = decimal * vertex0.get_y() + (1 - decimal) * vertex1.get_y();
+      auto posX = (1 - decimal) * vertex0.get_x() + decimal * vertex1.get_x();
+      auto posY = (1 - decimal) * vertex0.get_y() + decimal * vertex1.get_y();
       ctx.call<void>("arc", posX, posY, 5, 0, 2 * std::numbers::pi);
       ctx.call<void>("stroke");
     }
@@ -362,7 +362,7 @@ void FetchVertices()
   attr.attributes = EMSCRIPTEN_FETCH_LOAD_TO_MEMORY;
   attr.onsuccess = VerticesDownloadSucceeded;
   attr.onerror = VerticesDownloadFailed;
-  emscripten_fetch(&attr, "vertices.json");
+  emscripten_fetch(&attr, "nodes.json");
 }
 
 void FetchWays()

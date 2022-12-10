@@ -47,15 +47,11 @@ class Car
 {
 public:
   boost::uuids::uuid uuid;
-  Way* currentRoadPointer;
-  double posX;
-  double posY;
-  double velX;
-  double velY;
-  double accX;
-  double accY;
-  double jrkX;
-  double jrkY;
+  Way* wayPointer;
+  double position;
+  double velocity;
+  double acceleration;
+  double jerk;
   double maxSpeed;
   double maxAcceleration;
   double maxJerk;
@@ -140,7 +136,7 @@ public:
   Workspace()
   {
     ticks = 0;
-    numCars = 3;
+    numCars = 4;
     verticesLoaded = false;
     waysLoaded = false;
   }
@@ -239,15 +235,11 @@ public:
       auto& randomWay = random_way();
       auto& randomWayVertexPointerVector = randomWay.get_vertex_pointer_vector();
       double randomPos = random_double() * (randomWayVertexPointerVector.size() - 1);
-      std::size_t floor = std::floor(randomPos);
-      double decimal = randomPos - floor;
-      std::size_t ceil = std::ceil(randomPos);
-      auto& vertex0 = *(randomWayVertexPointerVector.at(floor));
-      auto& vertex1 = *(randomWayVertexPointerVector.at(ceil));
       Car currentCar;
       currentCar.uuid = generate_uuid();
-      currentCar.posX = decimal * vertex0.get_x() + (1 - decimal) * vertex1.get_x();
-      currentCar.posY = decimal * vertex0.get_y() + (1 - decimal) * vertex1.get_y();
+      currentCar.wayPointer = &randomWay;
+      currentCar.position = randomPos;
+      currentCar.velocity = 0.01;
       cars.try_emplace(currentCar.uuid, currentCar);
     }
     return true;
@@ -276,12 +268,44 @@ public:
     for (const auto& [uuid, car] : cars)
     {
       ctx.call<void>("beginPath");
-      ctx.call<void>("arc", car.posX, car.posY, 5, 0, 2 * std::numbers::pi);
+      auto position = car.position;
+      auto& wayVertexPointerVector = car.wayPointer->get_vertex_pointer_vector();
+      std::size_t floor = std::floor(position);
+      auto decimal = position - floor;
+      std::size_t ceil = std::ceil(position);
+      auto& vertex0 = *(wayVertexPointerVector.at(floor));
+      auto& vertex1 = *(wayVertexPointerVector.at(ceil));
+      auto posX = decimal * vertex0.get_x() + (1 - decimal) * vertex1.get_x();
+      auto posY = decimal * vertex0.get_y() + (1 - decimal) * vertex1.get_y();
+      ctx.call<void>("arc", posX, posY, 5, 0, 2 * std::numbers::pi);
       ctx.call<void>("stroke");
     }
   }
   void tick()
   {
+    for (auto& [uuid, car] : cars)
+    {
+      car.position += car.velocity;
+      auto max = car.wayPointer->get_vertex_pointer_vector().size() - 1;
+      bool isOverflowing = false;
+      bool isUnderflowing = false;
+      do
+      {
+        if (isOverflowing)
+        {
+          car.position = 2 * max - car.position;
+          car.velocity *= -1;
+        }
+        if (isUnderflowing)
+        {
+          car.position = -car.position;
+          car.velocity *= -1;
+        }
+        isOverflowing = car.position > max;
+        isUnderflowing = car.position < 0;
+      }
+      while (isOverflowing or isUnderflowing);
+    }
     ticks++;
   }
 };
@@ -370,6 +394,7 @@ void RenderCanvas(double DOMHighResTimeStamp)
     }
   }
   auto canvas = document.call<emscripten::val>("getElementById", emscripten::val("canvas"));
+  workspace.tick();
   workspace.render_to_canvas(canvas);
   window.call<void>("requestAnimationFrame", emscripten::val::module_property("RenderCanvas"));
 }

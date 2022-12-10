@@ -20,6 +20,7 @@
 #include <random>
 #include <unordered_map>
 #include <string>
+#include <numbers>
 #include "json.hpp"
 
 class Pedestrian;
@@ -61,10 +62,29 @@ public:
 
 class Vertex
 {
-public:
+private:
   boost::uuids::uuid uuid;
   double posX;
   double posY;
+public:
+  Vertex(boost::uuids::uuid uuid, double posX, double posY)
+  {
+    this->uuid = uuid;
+    this->posX = posX;
+    this->posY = posY;
+  }
+  boost::uuids::uuid get_uuid() const
+  {
+    return uuid;
+  }
+  double get_x() const
+  {
+    return posX;
+  }
+  double get_y() const
+  {
+    return posY;
+  }
 };
 
 class Edge
@@ -102,17 +122,24 @@ public:
     this->edges = edges;
     edgesLoaded = true;
   }
-  bool check_vertices_are_loaded()
+  bool initialize_workspace()
   {
-    bool ans = verticesLoaded;
-    verticesLoaded = false;
-    return ans;
+    if (!verticesLoaded)
+    {
+      return false;
+    }
+    return true;
   }
-  bool check_edges_are_loaded()
+  void render_to_canvas(emscripten::val canvas) const
   {
-    bool ans = edgesLoaded;
-    edgesLoaded = false;
-    return ans;
+    auto ctx = canvas.call<emscripten::val>("getContext", emscripten::val("2d"));
+    ctx.call<void>("clearRect", emscripten::val(0), emscripten::val(0), canvas["width"], canvas["height"]);
+    for (const auto& [uuid, vertex] : vertices)
+    {
+      ctx.call<void>("beginPath");
+      ctx.call<void>("arc", vertex.get_x(), vertex.get_y(), 10, 0, 2 * std::numbers::pi);
+      ctx.call<void>("stroke");
+    }
   }
   void tick()
   {
@@ -135,11 +162,11 @@ std::unordered_map<boost::uuids::uuid, Vertex, boost::hash<boost::uuids::uuid>> 
   std::unordered_map<boost::uuids::uuid, Vertex, boost::hash<boost::uuids::uuid>> ans;
   for (auto& dataEntry : data)
   {
-    Vertex vertex;
-    vertex.posX = dataEntry["x"].get<double>();
-    vertex.posY = dataEntry["y"].get<double>();
-    vertex.uuid = gen(dataEntry["uuid"].get<std::string>());
-    ans.try_emplace(vertex.uuid, vertex);
+    auto uuid = gen(dataEntry["uuid"].get<std::string>());
+    auto posX = dataEntry["x"].get<double>();
+    auto posY = dataEntry["y"].get<double>();
+    Vertex vertex(uuid, posX, posY);
+    ans.try_emplace(uuid, vertex);
   }
   return ans;
 }
@@ -194,10 +221,23 @@ double RandomDouble()
 
 void RenderCanvas(double DOMHighResTimeStamp)
 {
-    emscripten::val window = emscripten::val::global("window");
-    emscripten::val document = emscripten::val::global("document");
-    auto canvas = document.call<emscripten::val>("getElementById", emscripten::val("canvas"));
+  static bool isInitialized = false;
+  emscripten::val window = emscripten::val::global("window");
+  emscripten::val document = emscripten::val::global("document");
+  if (!isInitialized)
+  {
+    bool initializationSuccessful = workspace.initialize_workspace();
     window.call<void>("requestAnimationFrame", emscripten::val::module_property("RenderCanvas"));
+    if (!initializationSuccessful)
+    {
+      return;
+    } else {
+      isInitialized = true;
+    }
+  }
+  auto canvas = document.call<emscripten::val>("getElementById", emscripten::val("canvas"));
+  workspace.render_to_canvas(canvas);
+  window.call<void>("requestAnimationFrame", emscripten::val::module_property("RenderCanvas"));
 }
 
 void InitializeCanvas(emscripten::val canvas)

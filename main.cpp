@@ -8,31 +8,134 @@
 #include <emscripten/val.h>
 #include <emscripten/bind.h>
 #include <emscripten/emscripten.h>
+#include <emscripten/fetch.h>
+#include <boost/uuid/uuid.hpp>
+#include <boost/functional/hash.hpp>
 #include <iostream>
 #include <vector>
 #include <array>
+#include <random>
+#include <unordered_map>
+#include <string>
+
+class Pedestrian;
+class Car;
+class Vertex;
+class Edge;
 
 class Pedestrian
 {
-  double x;
-  double y;
+  boost::uuids::uuid uuid;
+  double posX;
+  double posY;
+  double velX;
+  double velY;
+  double accX;
+  double accY;
+  double jrkX;
+  double jrkY;
 };
 
 class Car
 {
-  double x;
-  double y;
+  boost::uuids::uuid uuid;
+  Edge* currentRoadPointer;
+  double posX;
+  double posY;
+  double velX;
+  double velY;
+  double accX;
+  double accY;
+  double jrkX;
+  double jrkY;
+  double maxSpeed;
+  double maxAcceleration;
+  double maxJerk;
+};
+
+class Vertex
+{
+  boost::uuids::uuid uuid;
+  double posX;
+  double posY;
+};
+
+class Edge
+{
+  boost::uuids::uuid uuid;
+  double posX;
+  double posY;
 };
 
 class Workspace
 {
-  std::vector<Car> cars;
-  std::vector<Pedestrian> pedestrians;
-  Workspace()
+  std::unordered_map<boost::uuids::uuid, Car, boost::hash<boost::uuids::uuid>> cars;
+  std::unordered_map<boost::uuids::uuid, Pedestrian, boost::hash<boost::uuids::uuid>> pedestrians;
+  std::unordered_map<boost::uuids::uuid, Vertex, boost::hash<boost::uuids::uuid>> vertices;
+  std::unordered_map<boost::uuids::uuid, Edge, boost::hash<boost::uuids::uuid>> edges;
+  std::size_t ticks;
+  Workspace(std::unordered_map<boost::uuids::uuid, Vertex, boost::hash<boost::uuids::uuid>>& vertices,
+            std::unordered_map<boost::uuids::uuid, Edge, boost::hash<boost::uuids::uuid>>& edges)
   {
     //
   }
+  void load_vertices(std::unordered_map<boost::uuids::uuid, Vertex, boost::hash<boost::uuids::uuid>>& vertices)
+  {
+    this->vertices = vertices;
+  }
+  void load_edges(std::unordered_map<boost::uuids::uuid, Edge, boost::hash<boost::uuids::uuid>>& edges)
+  {
+    this->edges = edges;
+  }
+  void tick()
+  {
+    ticks++;
+  }
 };
+
+void downloadSucceeded(emscripten_fetch_t *fetch) {
+  // The data is now available at fetch->data[0] through fetch->data[fetch->numBytes-1];
+  std::cout << fetch->data << " " << std::string(fetch->data) << "\n";
+  emscripten_fetch_close(fetch); // Free data associated with the fetch.
+}
+
+void downloadFailed(emscripten_fetch_t *fetch) {
+  emscripten_fetch_close(fetch); // Also free data on failure.
+}
+
+void FetchVertices()
+{
+  emscripten_fetch_attr_t attr;
+  emscripten_fetch_attr_init(&attr);
+  strcpy(attr.requestMethod, "GET");
+  attr.attributes = EMSCRIPTEN_FETCH_LOAD_TO_MEMORY;
+  attr.onsuccess = downloadSucceeded;
+  attr.onerror = downloadFailed;
+  emscripten_fetch(&attr, "test.dat");
+}
+
+void FetchEdges()
+{
+  //
+}
+
+std::unordered_map<boost::uuids::uuid, Vertex, boost::hash<boost::uuids::uuid>> ParseVertices()
+{
+  //
+}
+
+std::unordered_map<boost::uuids::uuid, Edge, boost::hash<boost::uuids::uuid>> ParseEdges()
+{
+  //
+}
+
+std::size_t RandomInt()
+{
+  static std::random_device rd;
+  static std::mt19937 rng(rd());
+  static std::uniform_int_distribution<std::size_t> dist;
+  return dist(rng);
+}
 
 void RenderCanvas(double DOMHighResTimeStamp)
 {
@@ -59,6 +162,7 @@ int main()
     emscripten::val window = emscripten::val::global("window");
     emscripten::val document = emscripten::val::global("document");
     auto canvas = document.call<emscripten::val>("getElementById", emscripten::val("canvas"));
+    FetchVertices();
     InitializeCanvas(canvas);
     canvas.call<void>("addEventListener", emscripten::val("resize"), emscripten::val::module_property("InitializeCanvas"));
     RenderCanvas(0);

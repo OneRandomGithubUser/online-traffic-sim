@@ -141,6 +141,10 @@ public:
     waysLoaded = false;
   }
 protected:
+  double lat_lon_to_x_y()
+  {
+    // TODO: make this account for the curvature of the earth better
+  }
   double random_double()
   {
     static std::random_device rd;
@@ -240,6 +244,10 @@ public:
       currentCar.wayPointer = &randomWay;
       currentCar.position = randomPos;
       currentCar.velocity = 0.01;
+      currentCar.maxSpeed = 60;
+      currentCar.maxAcceleration = 8;
+      currentCar.jerk = 15;
+      currentCar.maxJerk = 25;
       cars.try_emplace(currentCar.uuid, currentCar);
     }
     return true;

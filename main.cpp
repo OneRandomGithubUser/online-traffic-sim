@@ -15,8 +15,9 @@
 #include <boost/uuid/string_generator.hpp>
 #include <boost/functional/hash.hpp>
 #include <iostream>
+#include <utility>
 #include <vector>
-#include <array>
+#include <optional>
 #include <random>
 #include <unordered_map>
 #include <string>
@@ -66,6 +67,7 @@ private:
   boost::uuids::uuid uuid;
   double posX;
   double posY;
+  std::vector<Edge*> edgePointerVector;
 public:
   Vertex(boost::uuids::uuid uuid, double posX, double posY)
   {
@@ -73,26 +75,51 @@ public:
     this->posX = posX;
     this->posY = posY;
   }
-  boost::uuids::uuid get_uuid() const
+  [[nodiscard]] boost::uuids::uuid get_uuid() const
   {
     return uuid;
   }
-  double get_x() const
+  [[nodiscard]] double get_x() const
   {
     return posX;
   }
-  double get_y() const
+  [[nodiscard]] double get_y() const
   {
     return posY;
+  }
+  void add_edge(Edge& edge)
+  {
+    edgePointerVector.emplace_back(&edge);
+  }
+  [[nodiscard]] const std::vector<Edge*>& get_edge_pointer_vector() const
+  {
+    return edgePointerVector;
   }
 };
 
 class Edge
 {
-public:
+private:
   boost::uuids::uuid uuid;
-  double posX;
-  double posY;
+  std::vector<Vertex*> vertexPointerVector;
+public:
+  Edge(boost::uuids::uuid uuid, std::vector<Vertex*>& vertexPointerVector)
+  {
+    this->uuid = uuid;
+    this->vertexPointerVector = std::move(vertexPointerVector);
+  }
+  [[nodiscard]] boost::uuids::uuid get_uuid() const
+  {
+    return uuid;
+  }
+  void add_vertex(Vertex& vertex)
+  {
+    vertexPointerVector.emplace_back(&vertex);
+  }
+  [[nodiscard]] const std::vector<Vertex*>& get_vertex_pointer_vector() const
+  {
+    return vertexPointerVector;
+  }
 };
 
 class Workspace
@@ -102,6 +129,7 @@ protected:
   std::unordered_map<boost::uuids::uuid, Pedestrian, boost::hash<boost::uuids::uuid>> pedestrians;
   std::unordered_map<boost::uuids::uuid, Vertex, boost::hash<boost::uuids::uuid>> vertices;
   std::unordered_map<boost::uuids::uuid, Edge, boost::hash<boost::uuids::uuid>> edges;
+  std::optional<nlohmann::json> cachedEdgeData;
   std::size_t ticks;
   bool verticesLoaded;
   bool edgesLoaded;
@@ -112,19 +140,66 @@ public:
     edgesLoaded = false;
     ticks = 0;
   }
-  void load_vertices(std::unordered_map<boost::uuids::uuid, Vertex, boost::hash<boost::uuids::uuid>>& vertices)
-  {
-    this->vertices = vertices;
-    verticesLoaded = true;
-  }
-  void load_edges(std::unordered_map<boost::uuids::uuid, Edge, boost::hash<boost::uuids::uuid>>& edges)
-  {
-    this->edges = edges;
+protected:
+  void parse_edges_helper(nlohmann::json jsonData, bool clearCachedEdgeData) {
+    static boost::uuids::string_generator gen;
+    edges.clear();
+    for (auto& dataEntry : jsonData)
+    {
+      auto uuid = gen(dataEntry["uuid"].get<std::string>());
+      auto nodeUuidList = dataEntry["nodeUuidList"];
+      std::vector<Vertex*> vertexPointerVector;
+      Edge edge(uuid, vertexPointerVector);
+      edges.try_emplace(uuid, edge);
+      Edge& currentEdge = edges.at(uuid);
+      for (auto& nodeUuidJson : nodeUuidList)
+      {
+        auto nodeUuid = gen(nodeUuidJson.get<std::string>());
+        Vertex& currentVertex = vertices.at(nodeUuid);
+        currentEdge.add_vertex(currentVertex);
+        currentVertex.add_edge(currentEdge);
+      }
+    }
+    if (clearCachedEdgeData)
+    {
+      cachedEdgeData.reset();
+    }
     edgesLoaded = true;
+  }
+public:
+  void parse_edges(emscripten_fetch_t *fetch)
+  {
+    auto data = nlohmann::json::parse(fetch->data);
+    emscripten_fetch_close(fetch); // Free data associated with the fetch.
+    if (verticesLoaded) {
+      parse_edges_helper(data, false);
+    } else {
+      cachedEdgeData = data;
+    }
+  }
+  void parse_vertices(emscripten_fetch_t *fetch)
+  {
+    static boost::uuids::string_generator gen;
+    auto data = nlohmann::json::parse(fetch->data);
+    emscripten_fetch_close(fetch); // Free data associated with the fetch.
+    vertices.clear();
+    for (auto& dataEntry : data)
+    {
+      auto uuid = gen(dataEntry["uuid"].get<std::string>());
+      auto posX = dataEntry["x"].get<double>();
+      auto posY = dataEntry["y"].get<double>();
+      Vertex vertex(uuid, posX, posY);
+      vertices.try_emplace(uuid, vertex);
+    }
+    verticesLoaded = true;
+    if (cachedEdgeData.has_value())
+    {
+      parse_edges_helper(cachedEdgeData.value(), true);
+    }
   }
   bool initialize_workspace()
   {
-    if (!verticesLoaded)
+    if (!verticesLoaded or !edgesLoaded)
     {
       return false;
     }
@@ -140,6 +215,17 @@ public:
       ctx.call<void>("arc", vertex.get_x(), vertex.get_y(), 10, 0, 2 * std::numbers::pi);
       ctx.call<void>("stroke");
     }
+    ctx.call<void>("beginPath");
+    for (const auto& [uuid, edge] : edges)
+    {
+      auto vertexPointerVector = edge.get_vertex_pointer_vector();
+      ctx.call<void>("moveTo", vertexPointerVector.at(0)->get_x(), vertexPointerVector.at(0)->get_y());
+      for (const auto& vertexPointer : vertexPointerVector)
+      {
+        ctx.call<void>("lineTo", vertexPointer->get_x(), vertexPointer->get_y());
+      }
+    }
+    ctx.call<void>("stroke");
   }
   void tick()
   {
@@ -155,44 +241,46 @@ boost::uuids::uuid GenerateUuid() {
   return uuidGenerator();
 }
 
-std::unordered_map<boost::uuids::uuid, Vertex, boost::hash<boost::uuids::uuid>> ParseVertices(std::string jsonData)
+void FetchVertices();
+void FetchEdges();
+
+void VertexDownloadHandler(emscripten_fetch_t *fetch, bool wasSuccessful)
 {
-  static boost::uuids::string_generator gen;
-  nlohmann::json data = nlohmann::json::parse(jsonData);
-  std::unordered_map<boost::uuids::uuid, Vertex, boost::hash<boost::uuids::uuid>> ans;
-  for (auto& dataEntry : data)
-  {
-    auto uuid = gen(dataEntry["uuid"].get<std::string>());
-    auto posX = dataEntry["x"].get<double>();
-    auto posY = dataEntry["y"].get<double>();
-    Vertex vertex(uuid, posX, posY);
-    ans.try_emplace(uuid, vertex);
+  if (wasSuccessful) {
+    workspace.parse_vertices(fetch);
+  } else {
+    emscripten_fetch_close(fetch);
+    // TODO: this is bad and will probably spam the user if they don't have internet
+    FetchVertices();
   }
-  return ans;
 }
 
-std::unordered_map<boost::uuids::uuid, Edge, boost::hash<boost::uuids::uuid>> ParseEdges(std::string jsonData)
+void EdgeDownloadHandler(emscripten_fetch_t *fetch, bool wasSuccessful)
 {
-  //
+  if (wasSuccessful) {
+    workspace.parse_edges(fetch);
+  } else {
+    emscripten_fetch_close(fetch);
+    // TODO: this is bad and will probably spam the user if they don't have internet
+    FetchEdges();
+  }
 }
 
 void VerticesDownloadSucceeded(emscripten_fetch_t *fetch) {
   // The data is now available at fetch->data[0] through fetch->data[fetch->numBytes-1];
-  auto parsedData = ParseVertices(std::string(fetch->data));
-  workspace.load_vertices(parsedData);
-  emscripten_fetch_close(fetch); // Free data associated with the fetch.
+  VertexDownloadHandler(fetch, true);
 }
 
 void VerticesDownloadFailed(emscripten_fetch_t *fetch) {
-  emscripten_fetch_close(fetch); // Also free data on failure.
+  VertexDownloadHandler(fetch, false);
 }
 
 void EdgesDownloadSucceeded(emscripten_fetch_t *fetch) {
-  emscripten_fetch_close(fetch);
+  EdgeDownloadHandler(fetch, true);
 }
 
 void EdgesDownloadFailed(emscripten_fetch_t *fetch) {
-  emscripten_fetch_close(fetch); // Also free data on failure.
+  EdgeDownloadHandler(fetch, false);
 }
 
 void FetchVertices()
@@ -203,12 +291,19 @@ void FetchVertices()
   attr.attributes = EMSCRIPTEN_FETCH_LOAD_TO_MEMORY;
   attr.onsuccess = VerticesDownloadSucceeded;
   attr.onerror = VerticesDownloadFailed;
-  emscripten_fetch(&attr, "test.json");
+  emscripten_fetch(&attr, "vertices.json");
 }
 
 void FetchEdges()
 {
-  //
+  // must be called AFTER FetchVertices
+  emscripten_fetch_attr_t attr;
+  emscripten_fetch_attr_init(&attr);
+  strcpy(attr.requestMethod, "GET");
+  attr.attributes = EMSCRIPTEN_FETCH_LOAD_TO_MEMORY;
+  attr.onsuccess = EdgesDownloadSucceeded;
+  attr.onerror = EdgesDownloadFailed;
+  emscripten_fetch(&attr, "edges.json");
 }
 
 double RandomDouble()
@@ -258,6 +353,7 @@ int main()
     emscripten::val document = emscripten::val::global("document");
     auto canvas = document.call<emscripten::val>("getElementById", emscripten::val("canvas"));
     FetchVertices();
+    FetchEdges();
     InitializeCanvas(canvas);
     canvas.call<void>("addEventListener", emscripten::val("resize"), emscripten::val::module_property("InitializeCanvas"));
     RenderCanvas(0);

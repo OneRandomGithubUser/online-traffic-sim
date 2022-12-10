@@ -195,7 +195,8 @@ protected:
 public:
   void parse_ways(emscripten_fetch_t *fetch)
   {
-    auto data = nlohmann::json::parse(fetch->data);
+    auto truncatedFetchedData = std::string(fetch->data, fetch->data + fetch->numBytes);
+    auto data = nlohmann::json::parse(truncatedFetchedData);
     emscripten_fetch_close(fetch); // Free data associated with the fetch.
     if (verticesLoaded) {
       parse_ways_helper(data, false);
@@ -206,7 +207,8 @@ public:
   void parse_vertices(emscripten_fetch_t *fetch)
   {
     static boost::uuids::string_generator gen;
-    auto data = nlohmann::json::parse(fetch->data);
+    auto truncatedFetchedData = std::string(fetch->data, fetch->data + fetch->numBytes);
+    auto data = nlohmann::json::parse(truncatedFetchedData);
     emscripten_fetch_close(fetch); // Free data associated with the fetch.
     vertexMap.clear();
     for (auto& dataEntry : data)

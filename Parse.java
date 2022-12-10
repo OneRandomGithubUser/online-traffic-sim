@@ -5,8 +5,12 @@ import java.io.IOException;
 import java.io.FileWriter;
 import java.util.UUID;
 import java.util.ArrayList;
+import java.util.HashMap;
 
 public class Parse{
+   
+   //key (short uuid), value (long uuid)
+   static HashMap<String, String> uuidMap = new HashMap<String, String>();
    
    public static void print(String str){
       System.out.println(str);
@@ -90,19 +94,13 @@ public class Parse{
                }
                
                Nodes[ind] = new Node(uuid, id, lat, lon);
+               uuidMap.put(id, uuid);
                ind++;
             }
          }
       }
       
-      PrintWriter outfile = new PrintWriter("Nodes-ID.txt");
-      for (int i = 0; i < ind; i++) {
-         outfile.println(Nodes[i].id);
-      }
-      outfile.flush();
-      outfile.close();
-      
-      outfile = new PrintWriter("Nodes.json");
+      PrintWriter outfile = new PrintWriter("Nodes.json");
       outfile.println("[");
       for (int i = 0; i < ind; i++) {
          outfile.println(" {");
@@ -131,18 +129,9 @@ public class Parse{
    }
    
    public static void parseWays(String fileName, String nodeFile, int index) throws IOException {
-      FileInputStream is = new FileInputStream(nodeFile);
+      
+      FileInputStream is = new FileInputStream(fileName);
       Scanner inSS = new Scanner(is);
-      
-      String[] nodes = new String[index];
-      int counter = 0;
-      while(inSS.hasNextLine()){
-         nodes[counter] += inSS.nextLine();   
-         counter++;
-      }
-      
-      is = new FileInputStream(fileName);
-      inSS = new Scanner(is);
       int count = 0;
       
       while(inSS.hasNextLine()){
@@ -187,7 +176,7 @@ public class Parse{
                      }
                      ref += nxLn.charAt(i);
                   }
-                  if (inList(nodes, ref)) {
+                  if (uuidMap.containsKey(ref)) {
                      refs.add(ref);
                   }
                }
@@ -217,7 +206,7 @@ public class Parse{
                if (j == Ways[i].refs.size() - 1) {
                   temp = "\"";
                }
-               outfile.println("       \""+Ways[i].refs.get(j) + temp);
+               outfile.println("       \""+uuidMap.get(Ways[i].refs.get(j)) + temp);
             }
             outfile.println("    ]");
             outfile.print(" }");     

@@ -27,7 +27,7 @@
 class Pedestrian;
 class Car;
 class Vertex;
-class Edge;
+class Way;
 
 class Pedestrian
 {
@@ -47,7 +47,7 @@ class Car
 {
 public:
   boost::uuids::uuid uuid;
-  Edge* currentRoadPointer;
+  Way* currentRoadPointer;
   double posX;
   double posY;
   double velX;
@@ -67,7 +67,7 @@ private:
   boost::uuids::uuid uuid;
   double posX;
   double posY;
-  std::vector<Edge*> edgePointerVector;
+  std::vector<Way*> wayPointerVector;
 public:
   Vertex(boost::uuids::uuid uuid, double posX, double posY)
   {
@@ -87,23 +87,23 @@ public:
   {
     return posY;
   }
-  void add_edge(Edge& edge)
+  void add_way(Way& way)
   {
-    edgePointerVector.emplace_back(&edge);
+    wayPointerVector.emplace_back(&way);
   }
-  [[nodiscard]] const std::vector<Edge*>& get_edge_pointer_vector() const
+  [[nodiscard]] const std::vector<Way*>& get_way_pointer_vector() const
   {
-    return edgePointerVector;
+    return wayPointerVector;
   }
 };
 
-class Edge
+class Way
 {
 private:
   boost::uuids::uuid uuid;
   std::vector<Vertex*> vertexPointerVector;
 public:
-  Edge(boost::uuids::uuid uuid, std::vector<Vertex*>& vertexPointerVector)
+  Way(boost::uuids::uuid uuid, std::vector<Vertex*>& vertexPointerVector)
   {
     this->uuid = uuid;
     this->vertexPointerVector = std::move(vertexPointerVector);
@@ -127,54 +127,80 @@ class Workspace
 protected:
   std::unordered_map<boost::uuids::uuid, Car, boost::hash<boost::uuids::uuid>> cars;
   std::unordered_map<boost::uuids::uuid, Pedestrian, boost::hash<boost::uuids::uuid>> pedestrians;
-  std::unordered_map<boost::uuids::uuid, Vertex, boost::hash<boost::uuids::uuid>> vertices;
-  std::unordered_map<boost::uuids::uuid, Edge, boost::hash<boost::uuids::uuid>> edges;
-  std::optional<nlohmann::json> cachedEdgeData;
+  std::vector<Vertex*> vertexPointerVector;
+  std::vector<Way*> wayPointerVector;
+  std::unordered_map<boost::uuids::uuid, Vertex, boost::hash<boost::uuids::uuid>> vertexMap;
+  std::unordered_map<boost::uuids::uuid, Way, boost::hash<boost::uuids::uuid>> ways;
+  std::optional<nlohmann::json> cachedWayData;
   std::size_t ticks;
+  long int numCars;
   bool verticesLoaded;
-  bool edgesLoaded;
+  bool waysLoaded;
 public:
   Workspace()
   {
-    verticesLoaded = false;
-    edgesLoaded = false;
     ticks = 0;
+    numCars = 3;
+    verticesLoaded = false;
+    waysLoaded = false;
   }
 protected:
-  void parse_edges_helper(nlohmann::json jsonData, bool clearCachedEdgeData) {
+  double random_double()
+  {
+    static std::random_device rd;
+    static std::mt19937 rng(rd());
+    static std::uniform_real_distribution<double> dist(0, 1);
+    return dist(rng);
+  }
+  template <typename T>
+  T& random_vector_element(std::vector<T*> vector)
+  {
+    return *(vector.at((std::size_t) (random_double() * vector.size())));
+  }
+  Way& random_way()
+  {
+    return random_vector_element(wayPointerVector);
+  }
+  boost::uuids::uuid generate_uuid() {
+    // this is not thread safe probably
+    static boost::uuids::random_generator uuidGenerator;
+    return uuidGenerator();
+  }
+  void parse_ways_helper(nlohmann::json jsonData, bool clearCachedWayData) {
     static boost::uuids::string_generator gen;
-    edges.clear();
+    ways.clear();
     for (auto& dataEntry : jsonData)
     {
       auto uuid = gen(dataEntry["uuid"].get<std::string>());
       auto nodeUuidList = dataEntry["nodeUuidList"];
-      std::vector<Vertex*> vertexPointerVector;
-      Edge edge(uuid, vertexPointerVector);
-      edges.try_emplace(uuid, edge);
-      Edge& currentEdge = edges.at(uuid);
+      std::vector<Vertex*> currentVertexPointerVector;
+      Way way(uuid, currentVertexPointerVector);
+      ways.try_emplace(uuid, way);
+      Way& currentWay = ways.at(uuid);
       for (auto& nodeUuidJson : nodeUuidList)
       {
         auto nodeUuid = gen(nodeUuidJson.get<std::string>());
-        Vertex& currentVertex = vertices.at(nodeUuid);
-        currentEdge.add_vertex(currentVertex);
-        currentVertex.add_edge(currentEdge);
+        Vertex& currentVertex = vertexMap.at(nodeUuid);
+        currentWay.add_vertex(currentVertex);
+        currentVertex.add_way(currentWay);
+        wayPointerVector.emplace_back(&currentWay);
       }
     }
-    if (clearCachedEdgeData)
+    if (clearCachedWayData)
     {
-      cachedEdgeData.reset();
+      cachedWayData.reset();
     }
-    edgesLoaded = true;
+    waysLoaded = true;
   }
 public:
-  void parse_edges(emscripten_fetch_t *fetch)
+  void parse_ways(emscripten_fetch_t *fetch)
   {
     auto data = nlohmann::json::parse(fetch->data);
     emscripten_fetch_close(fetch); // Free data associated with the fetch.
     if (verticesLoaded) {
-      parse_edges_helper(data, false);
+      parse_ways_helper(data, false);
     } else {
-      cachedEdgeData = data;
+      cachedWayData = data;
     }
   }
   void parse_vertices(emscripten_fetch_t *fetch)
@@ -182,26 +208,45 @@ public:
     static boost::uuids::string_generator gen;
     auto data = nlohmann::json::parse(fetch->data);
     emscripten_fetch_close(fetch); // Free data associated with the fetch.
-    vertices.clear();
+    vertexMap.clear();
     for (auto& dataEntry : data)
     {
       auto uuid = gen(dataEntry["uuid"].get<std::string>());
       auto posX = dataEntry["x"].get<double>();
       auto posY = dataEntry["y"].get<double>();
       Vertex vertex(uuid, posX, posY);
-      vertices.try_emplace(uuid, vertex);
+      vertexMap.try_emplace(uuid, vertex);
+      vertexPointerVector.emplace_back(&vertexMap.at(uuid));
     }
     verticesLoaded = true;
-    if (cachedEdgeData.has_value())
+    if (cachedWayData.has_value())
     {
-      parse_edges_helper(cachedEdgeData.value(), true);
+      parse_ways_helper(cachedWayData.value(), true);
     }
   }
   bool initialize_workspace()
   {
-    if (!verticesLoaded or !edgesLoaded)
+    if (!verticesLoaded or !waysLoaded)
     {
       return false;
+    }
+    cars.clear();
+    for (long int i = 0; i < numCars; i++)
+    {
+      // TODO: make a weighted list of roads based on its length and type
+      auto& randomWay = random_way();
+      auto& randomWayVertexPointerVector = randomWay.get_vertex_pointer_vector();
+      double randomPos = random_double() * (randomWayVertexPointerVector.size() - 1);
+      std::size_t floor = std::floor(randomPos);
+      double decimal = randomPos - floor;
+      std::size_t ceil = std::ceil(randomPos);
+      auto& vertex0 = *(randomWayVertexPointerVector.at(floor));
+      auto& vertex1 = *(randomWayVertexPointerVector.at(ceil));
+      Car currentCar;
+      currentCar.uuid = generate_uuid();
+      currentCar.posX = decimal * vertex0.get_x() + (1 - decimal) * vertex1.get_x();
+      currentCar.posY = decimal * vertex0.get_y() + (1 - decimal) * vertex1.get_y();
+      cars.try_emplace(currentCar.uuid, currentCar);
     }
     return true;
   }
@@ -209,23 +254,29 @@ public:
   {
     auto ctx = canvas.call<emscripten::val>("getContext", emscripten::val("2d"));
     ctx.call<void>("clearRect", emscripten::val(0), emscripten::val(0), canvas["width"], canvas["height"]);
-    for (const auto& [uuid, vertex] : vertices)
+    for (const auto& [uuid, vertex] : vertexMap)
     {
       ctx.call<void>("beginPath");
       ctx.call<void>("arc", vertex.get_x(), vertex.get_y(), 10, 0, 2 * std::numbers::pi);
       ctx.call<void>("stroke");
     }
     ctx.call<void>("beginPath");
-    for (const auto& [uuid, edge] : edges)
+    for (const auto& [uuid, way] : ways)
     {
-      auto vertexPointerVector = edge.get_vertex_pointer_vector();
-      ctx.call<void>("moveTo", vertexPointerVector.at(0)->get_x(), vertexPointerVector.at(0)->get_y());
-      for (const auto& vertexPointer : vertexPointerVector)
+      auto currentVertexPointerVector = way.get_vertex_pointer_vector();
+      ctx.call<void>("moveTo", currentVertexPointerVector.at(0)->get_x(), currentVertexPointerVector.at(0)->get_y());
+      for (const auto& vertexPointer : currentVertexPointerVector)
       {
         ctx.call<void>("lineTo", vertexPointer->get_x(), vertexPointer->get_y());
       }
     }
     ctx.call<void>("stroke");
+    for (const auto& [uuid, car] : cars)
+    {
+      ctx.call<void>("beginPath");
+      ctx.call<void>("arc", car.posX, car.posY, 5, 0, 2 * std::numbers::pi);
+      ctx.call<void>("stroke");
+    }
   }
   void tick()
   {
@@ -235,14 +286,8 @@ public:
 
 Workspace workspace;
 
-boost::uuids::uuid GenerateUuid() {
-  // this is not thread safe probably
-  static boost::uuids::random_generator uuidGenerator;
-  return uuidGenerator();
-}
-
 void FetchVertices();
-void FetchEdges();
+void FetchWays();
 
 void VertexDownloadHandler(emscripten_fetch_t *fetch, bool wasSuccessful)
 {
@@ -255,14 +300,14 @@ void VertexDownloadHandler(emscripten_fetch_t *fetch, bool wasSuccessful)
   }
 }
 
-void EdgeDownloadHandler(emscripten_fetch_t *fetch, bool wasSuccessful)
+void WayDownloadHandler(emscripten_fetch_t *fetch, bool wasSuccessful)
 {
   if (wasSuccessful) {
-    workspace.parse_edges(fetch);
+    workspace.parse_ways(fetch);
   } else {
     emscripten_fetch_close(fetch);
     // TODO: this is bad and will probably spam the user if they don't have internet
-    FetchEdges();
+    FetchWays();
   }
 }
 
@@ -275,12 +320,12 @@ void VerticesDownloadFailed(emscripten_fetch_t *fetch) {
   VertexDownloadHandler(fetch, false);
 }
 
-void EdgesDownloadSucceeded(emscripten_fetch_t *fetch) {
-  EdgeDownloadHandler(fetch, true);
+void WaysDownloadSucceeded(emscripten_fetch_t *fetch) {
+  WayDownloadHandler(fetch, true);
 }
 
-void EdgesDownloadFailed(emscripten_fetch_t *fetch) {
-  EdgeDownloadHandler(fetch, false);
+void WaysDownloadFailed(emscripten_fetch_t *fetch) {
+  WayDownloadHandler(fetch, false);
 }
 
 void FetchVertices()
@@ -294,24 +339,16 @@ void FetchVertices()
   emscripten_fetch(&attr, "vertices.json");
 }
 
-void FetchEdges()
+void FetchWays()
 {
   // must be called AFTER FetchVertices
   emscripten_fetch_attr_t attr;
   emscripten_fetch_attr_init(&attr);
   strcpy(attr.requestMethod, "GET");
   attr.attributes = EMSCRIPTEN_FETCH_LOAD_TO_MEMORY;
-  attr.onsuccess = EdgesDownloadSucceeded;
-  attr.onerror = EdgesDownloadFailed;
-  emscripten_fetch(&attr, "edges.json");
-}
-
-double RandomDouble()
-{
-  static std::random_device rd;
-  static std::mt19937 rng(rd());
-  static std::uniform_real_distribution<double> dist(0, 1);
-  return dist(rng);
+  attr.onsuccess = WaysDownloadSucceeded;
+  attr.onerror = WaysDownloadFailed;
+  emscripten_fetch(&attr, "ways.json");
 }
 
 void RenderCanvas(double DOMHighResTimeStamp)
@@ -353,7 +390,7 @@ int main()
     emscripten::val document = emscripten::val::global("document");
     auto canvas = document.call<emscripten::val>("getElementById", emscripten::val("canvas"));
     FetchVertices();
-    FetchEdges();
+    FetchWays();
     InitializeCanvas(canvas);
     canvas.call<void>("addEventListener", emscripten::val("resize"), emscripten::val::module_property("InitializeCanvas"));
     RenderCanvas(0);

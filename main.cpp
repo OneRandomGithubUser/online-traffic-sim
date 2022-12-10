@@ -10,6 +10,9 @@
 #include <emscripten/emscripten.h>
 #include <emscripten/fetch.h>
 #include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_generators.hpp>
+#include <boost/uuid/uuid_io.hpp>
+#include <boost/uuid/string_generator.hpp>
 #include <boost/functional/hash.hpp>
 #include <iostream>
 #include <vector>
@@ -17,6 +20,7 @@
 #include <random>
 #include <unordered_map>
 #include <string>
+#include "json.hpp"
 
 class Pedestrian;
 class Car;
@@ -25,6 +29,7 @@ class Edge;
 
 class Pedestrian
 {
+public:
   boost::uuids::uuid uuid;
   double posX;
   double posY;
@@ -38,6 +43,7 @@ class Pedestrian
 
 class Car
 {
+public:
   boost::uuids::uuid uuid;
   Edge* currentRoadPointer;
   double posX;
@@ -55,6 +61,7 @@ class Car
 
 class Vertex
 {
+public:
   boost::uuids::uuid uuid;
   double posX;
   double posY;
@@ -62,6 +69,7 @@ class Vertex
 
 class Edge
 {
+public:
   boost::uuids::uuid uuid;
   double posX;
   double posY;
@@ -69,23 +77,42 @@ class Edge
 
 class Workspace
 {
+protected:
   std::unordered_map<boost::uuids::uuid, Car, boost::hash<boost::uuids::uuid>> cars;
   std::unordered_map<boost::uuids::uuid, Pedestrian, boost::hash<boost::uuids::uuid>> pedestrians;
   std::unordered_map<boost::uuids::uuid, Vertex, boost::hash<boost::uuids::uuid>> vertices;
   std::unordered_map<boost::uuids::uuid, Edge, boost::hash<boost::uuids::uuid>> edges;
   std::size_t ticks;
-  Workspace(std::unordered_map<boost::uuids::uuid, Vertex, boost::hash<boost::uuids::uuid>>& vertices,
-            std::unordered_map<boost::uuids::uuid, Edge, boost::hash<boost::uuids::uuid>>& edges)
+  bool verticesLoaded;
+  bool edgesLoaded;
+public:
+  Workspace()
   {
-    //
+    verticesLoaded = false;
+    edgesLoaded = false;
+    ticks = 0;
   }
   void load_vertices(std::unordered_map<boost::uuids::uuid, Vertex, boost::hash<boost::uuids::uuid>>& vertices)
   {
     this->vertices = vertices;
+    verticesLoaded = true;
   }
   void load_edges(std::unordered_map<boost::uuids::uuid, Edge, boost::hash<boost::uuids::uuid>>& edges)
   {
     this->edges = edges;
+    edgesLoaded = true;
+  }
+  bool check_vertices_are_loaded()
+  {
+    bool ans = verticesLoaded;
+    verticesLoaded = false;
+    return ans;
+  }
+  bool check_edges_are_loaded()
+  {
+    bool ans = edgesLoaded;
+    edgesLoaded = false;
+    return ans;
   }
   void tick()
   {
@@ -93,21 +120,51 @@ class Workspace
   }
 };
 
-void verticesDownloadSucceeded(emscripten_fetch_t *fetch) {
+Workspace workspace;
+
+boost::uuids::uuid GenerateUuid() {
+  // this is not thread safe probably
+  static boost::uuids::random_generator uuidGenerator;
+  return uuidGenerator();
+}
+
+std::unordered_map<boost::uuids::uuid, Vertex, boost::hash<boost::uuids::uuid>> ParseVertices(std::string jsonData)
+{
+  static boost::uuids::string_generator gen;
+  nlohmann::json data = nlohmann::json::parse(jsonData);
+  std::unordered_map<boost::uuids::uuid, Vertex, boost::hash<boost::uuids::uuid>> ans;
+  for (auto& dataEntry : data)
+  {
+    Vertex vertex;
+    vertex.posX = dataEntry["x"].get<double>();
+    vertex.posY = dataEntry["y"].get<double>();
+    vertex.uuid = gen(dataEntry["uuid"].get<std::string>());
+    ans.try_emplace(vertex.uuid, vertex);
+  }
+  return ans;
+}
+
+std::unordered_map<boost::uuids::uuid, Edge, boost::hash<boost::uuids::uuid>> ParseEdges(std::string jsonData)
+{
+  //
+}
+
+void VerticesDownloadSucceeded(emscripten_fetch_t *fetch) {
   // The data is now available at fetch->data[0] through fetch->data[fetch->numBytes-1];
-  std::cout << fetch->data << " " << std::string(fetch->data) << "\n";
+  auto parsedData = ParseVertices(std::string(fetch->data));
+  workspace.load_vertices(parsedData);
   emscripten_fetch_close(fetch); // Free data associated with the fetch.
 }
 
-void verticesDownloadFailed(emscripten_fetch_t *fetch) {
+void VerticesDownloadFailed(emscripten_fetch_t *fetch) {
   emscripten_fetch_close(fetch); // Also free data on failure.
 }
 
-void edgesDownloadFailed(emscripten_fetch_t *fetch) {
+void EdgesDownloadSucceeded(emscripten_fetch_t *fetch) {
   emscripten_fetch_close(fetch);
 }
 
-void edgesDownloadFailed(emscripten_fetch_t *fetch) {
+void EdgesDownloadFailed(emscripten_fetch_t *fetch) {
   emscripten_fetch_close(fetch); // Also free data on failure.
 }
 
@@ -117,22 +174,12 @@ void FetchVertices()
   emscripten_fetch_attr_init(&attr);
   strcpy(attr.requestMethod, "GET");
   attr.attributes = EMSCRIPTEN_FETCH_LOAD_TO_MEMORY;
-  attr.onsuccess = verticesDownloadSucceeded;
-  attr.onerror = verticesDownloadFailed;
-  emscripten_fetch(&attr, "test.dat");
+  attr.onsuccess = VerticesDownloadSucceeded;
+  attr.onerror = VerticesDownloadFailed;
+  emscripten_fetch(&attr, "test.json");
 }
 
 void FetchEdges()
-{
-  //
-}
-
-std::unordered_map<boost::uuids::uuid, Vertex, boost::hash<boost::uuids::uuid>> ParseVertices(std::string jsonData)
-{
-  jsonData
-}
-
-std::unordered_map<boost::uuids::uuid, Edge, boost::hash<boost::uuids::uuid>> ParseEdges(std::string jsonData)
 {
   //
 }

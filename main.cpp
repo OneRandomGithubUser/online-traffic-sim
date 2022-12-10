@@ -125,6 +125,10 @@ protected:
   std::unordered_map<boost::uuids::uuid, Pedestrian, boost::hash<boost::uuids::uuid>> pedestrians;
   std::vector<Vertex*> vertexPointerVector;
   std::vector<Way*> wayPointerVector;
+  double maxVertexX;
+  double maxVertexY;
+  double minVertexX;
+  double minVertexY;
   std::unordered_map<boost::uuids::uuid, Vertex, boost::hash<boost::uuids::uuid>> vertexMap;
   std::unordered_map<boost::uuids::uuid, Way, boost::hash<boost::uuids::uuid>> ways;
   std::optional<nlohmann::json> cachedWayData;
@@ -136,7 +140,7 @@ public:
   Workspace()
   {
     ticks = 0;
-    numCars = 100;
+    numCars = 1;
     verticesLoaded = false;
     waysLoaded = false;
   }
@@ -195,9 +199,12 @@ protected:
 public:
   void parse_ways(emscripten_fetch_t *fetch)
   {
+    std::cout << "1\n";
     auto truncatedFetchedData = std::string(fetch->data, fetch->data + fetch->numBytes);
+    std::cout << truncatedFetchedData << "\n";
     auto data = nlohmann::json::parse(truncatedFetchedData);
     emscripten_fetch_close(fetch); // Free data associated with the fetch.
+    std::cout << "2\n";
     if (verticesLoaded) {
       parse_ways_helper(data, false);
     } else {
@@ -211,11 +218,34 @@ public:
     auto data = nlohmann::json::parse(truncatedFetchedData);
     emscripten_fetch_close(fetch); // Free data associated with the fetch.
     vertexMap.clear();
+    auto first = data.begin().value();
+    auto firstX = first["x"].get<double>();
+    auto firstY = first["y"].get<double>();
+    minVertexX = firstX;
+    maxVertexX = firstX;
+    minVertexY = firstY;
+    maxVertexY = firstY;
     for (auto& dataEntry : data)
     {
       auto uuid = gen(dataEntry["uuid"].get<std::string>());
       auto posX = dataEntry["x"].get<double>();
       auto posY = dataEntry["y"].get<double>();
+      if (posX < minVertexX)
+      {
+        minVertexX = posX;
+      }
+      if (posX < minVertexY)
+      {
+        minVertexY = posY;
+      }
+      if (posX > maxVertexX)
+      {
+        maxVertexX = posX;
+      }
+      if (posX > maxVertexY)
+      {
+        maxVertexY = posY;
+      }
       Vertex vertex(uuid, posX, posY);
       vertexMap.try_emplace(uuid, vertex);
       vertexPointerVector.emplace_back(&vertexMap.at(uuid));
@@ -284,7 +314,10 @@ public:
       auto& vertex0 = *(wayVertexPointerVector.at(floor));
       auto& vertex1 = *(wayVertexPointerVector.at(ceil));
       auto posX = (1 - decimal) * vertex0.get_x() + decimal * vertex1.get_x();
+      posX = (posX - minVertexX) / (maxVertexX - minVertexX) + minVertexX;
       auto posY = (1 - decimal) * vertex0.get_y() + decimal * vertex1.get_y();
+      posY = (posY - minVertexY) / (maxVertexY - minVertexY) + minVertexY;
+      std::cout << posX << " " << posY << "\n";
       ctx.call<void>("arc", posX, posY, 5, 0, 2 * std::numbers::pi);
       ctx.call<void>("stroke");
     }

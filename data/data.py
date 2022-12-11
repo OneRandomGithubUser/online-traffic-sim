@@ -48,24 +48,3 @@ if __name__ == '__main__':
         json.dump(list(nodes.values()), f)
     with open('ways.json', 'w', encoding='utf-8') as f:
         json.dump(list(ways.values()), f)
-
-'''
-import osmium
-
-class DataHandler(osmium.SimpleHandler):
-    def __init__(self):
-        osmium.SimpleHandler.__init__(self)
-        self.roadNodesCoords = []
-
-    def node(self, n):
-        if "highway" in n.tags: #n.tags.get('highway')
-            print(n.get("lat"))
-            self.roadNodesCoords.append((n.lat,n.lon))
-
-if __name__ == '__main__':
-
-    h = DataHandler()
-
-    h.apply_file("maryland-latest.osm.pbf", locations=True, idx='flex_mem')#maryland-latest.osm.pbf")
-
-    print(h.roadNodesCoords)'''

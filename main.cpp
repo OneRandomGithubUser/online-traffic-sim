@@ -22,6 +22,8 @@
 #include <unordered_map>
 #include <string>
 #include <numbers>
+#include <chrono>
+#include <ctime>
 #include "json.hpp"
 
 class Pedestrian;
@@ -140,7 +142,7 @@ public:
   Workspace()
   {
     ticks = 0;
-    numCars = 100;
+    numCars = 1000;
     verticesLoaded = false;
     waysLoaded = false;
   }
@@ -270,7 +272,7 @@ public:
       currentCar.uuid = generate_uuid();
       currentCar.wayPointer = &randomWay;
       currentCar.position = randomPos;
-      currentCar.velocity = 0.01;
+      currentCar.velocity = 0.05;
       currentCar.maxSpeed = 60;
       currentCar.maxAcceleration = 8;
       currentCar.jerk = 15;
@@ -285,7 +287,7 @@ public:
   }
   double pos_y(double lat, double canvasHeight) const
   {
-    return (lat - minVertexY) / (maxVertexY - minVertexY) * canvasHeight;
+    return canvasHeight - (lat - minVertexY) / (maxVertexY - minVertexY) * canvasHeight;
   }
   void render_to_canvas(emscripten::val canvas) const
   {
@@ -293,12 +295,14 @@ public:
     auto canvasHeight = canvas["height"].as<double>();
     auto ctx = canvas.call<emscripten::val>("getContext", emscripten::val("2d"));
     ctx.call<void>("clearRect", emscripten::val(0), emscripten::val(0), canvas["width"], canvas["height"]);
+    /*
     for (const auto& [uuid, vertex] : vertexMap)
     {
       ctx.call<void>("beginPath");
       ctx.call<void>("arc", pos_x(vertex.get_x(), canvasWidth), pos_y(vertex.get_y(), canvasHeight), 10, 0, 2 * std::numbers::pi);
       ctx.call<void>("stroke");
     }
+    */
     ctx.call<void>("beginPath");
     for (const auto& [uuid, way] : ways)
     {
@@ -324,7 +328,7 @@ public:
       auto posY = (1 - decimal) * vertex0.get_y() + decimal * vertex1.get_y();
       posX = pos_x(posX, canvasWidth);
       posY = pos_y(posY, canvasHeight);
-      ctx.call<void>("arc", posX, posY, 5, 0, 2 * std::numbers::pi);
+      ctx.call<void>("fillRect", posX, posY, 3, 3);
       ctx.call<void>("stroke");
     }
   }
@@ -426,6 +430,7 @@ void FetchWays()
 
 void RenderCanvas(double DOMHighResTimeStamp)
 {
+  static std::size_t lastUpdateTime = -1;
   static bool isInitialized = false;
   emscripten::val window = emscripten::val::global("window");
   emscripten::val document = emscripten::val::global("document");
@@ -441,7 +446,12 @@ void RenderCanvas(double DOMHighResTimeStamp)
     }
   }
   auto canvas = document.call<emscripten::val>("getElementById", emscripten::val("canvas"));
-  workspace.tick();
+  auto now = std::chrono::system_clock::now();
+  auto unixMilis = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+  if (lastUpdateTime % 200 != unixMilis % 200)
+  {
+    workspace.tick();
+  }
   workspace.render_to_canvas(canvas);
   window.call<void>("requestAnimationFrame", emscripten::val::module_property("RenderCanvas"));
 }

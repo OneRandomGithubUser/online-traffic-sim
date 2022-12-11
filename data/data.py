@@ -4,6 +4,7 @@ import uuid
 
 nodes = {}
 ways = {}
+roadNodeIDs = []
 
 class NodeHandler(osmium.SimpleHandler):
     def __init__(self):
@@ -22,11 +23,15 @@ class WayHandler(osmium.SimpleHandler):
         osmium.SimpleHandler.__init__(self)
         self.num_nodes_w = 0
     def way(self, w):
-        if "highway" in w.tags:
+        tags = w.tags.get("highway")
+        if True or tags == "motorway" or tags == "trunk" or tags == "primary" or tags == "secondary":
             newList = []
             for nodeID in w.nodes:
-                if str(nodeID) in nodes:
-                    newList.append(str(nodeID))
+                nodeIDSTring = str(nodeID)
+                if nodeIDSTring in nodes:
+                    newList.append(nodeIDSTring)
+                    if nodeIDSTring not in roadNodeIDs:
+                        roadNodeIDs.append(nodeIDSTring)
             if len(newList) > 1:
                 ways[str(w.id)] = {"uuid" : str(uuid.uuid4()), "nodeIdList": newList}
 
@@ -35,7 +40,7 @@ if __name__ == '__main__':
     h = NodeHandler()
     g = WayHandler()
 
-    filename = "map.osm"
+    filename = "maryland-latest.osm.pbf"
     h.apply_file(filename)
     print("h done")
     g.apply_file(filename)
@@ -44,7 +49,11 @@ if __name__ == '__main__':
         for nodeID in way["nodeIdList"]:
             way["nodeUuidList"].append(nodes[nodeID]["uuid"])
         way.pop("nodeIdList")
+    newNodeKeys = []
+    for key, value in nodes.items():
+        if key in roadNodeIDs:
+            newNodeKeys.append(value)
     with open('nodes.json', 'w', encoding='utf-8') as f:
-        json.dump(list(nodes.values()), f)
+        json.dump(newNodeKeys, f)
     with open('ways.json', 'w', encoding='utf-8') as f:
         json.dump(list(ways.values()), f)

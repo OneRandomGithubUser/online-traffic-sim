@@ -140,7 +140,7 @@ public:
   Workspace()
   {
     ticks = 0;
-    numCars = 1;
+    numCars = 100;
     verticesLoaded = false;
     waysLoaded = false;
   }
@@ -199,12 +199,9 @@ protected:
 public:
   void parse_ways(emscripten_fetch_t *fetch)
   {
-    std::cout << "1\n";
     auto truncatedFetchedData = std::string(fetch->data, fetch->data + fetch->numBytes);
-    std::cout << truncatedFetchedData << "\n";
     auto data = nlohmann::json::parse(truncatedFetchedData);
     emscripten_fetch_close(fetch); // Free data associated with the fetch.
-    std::cout << "2\n";
     if (verticesLoaded) {
       parse_ways_helper(data, false);
     } else {
@@ -234,7 +231,7 @@ public:
       {
         minVertexX = posX;
       }
-      if (posX < minVertexY)
+      if (posY < minVertexY)
       {
         minVertexY = posY;
       }
@@ -242,7 +239,7 @@ public:
       {
         maxVertexX = posX;
       }
-      if (posX > maxVertexY)
+      if (posY > maxVertexY)
       {
         maxVertexY = posY;
       }
@@ -282,24 +279,34 @@ public:
     }
     return true;
   }
+  double pos_x(double lon, double canvasWidth) const
+  {
+    return (lon - minVertexX) / (maxVertexX - minVertexX) * canvasWidth;
+  }
+  double pos_y(double lat, double canvasHeight) const
+  {
+    return (lat - minVertexY) / (maxVertexY - minVertexY) * canvasHeight;
+  }
   void render_to_canvas(emscripten::val canvas) const
   {
+    auto canvasWidth = canvas["width"].as<double>();
+    auto canvasHeight = canvas["height"].as<double>();
     auto ctx = canvas.call<emscripten::val>("getContext", emscripten::val("2d"));
     ctx.call<void>("clearRect", emscripten::val(0), emscripten::val(0), canvas["width"], canvas["height"]);
     for (const auto& [uuid, vertex] : vertexMap)
     {
       ctx.call<void>("beginPath");
-      ctx.call<void>("arc", vertex.get_x(), vertex.get_y(), 10, 0, 2 * std::numbers::pi);
+      ctx.call<void>("arc", pos_x(vertex.get_x(), canvasWidth), pos_y(vertex.get_y(), canvasHeight), 10, 0, 2 * std::numbers::pi);
       ctx.call<void>("stroke");
     }
     ctx.call<void>("beginPath");
     for (const auto& [uuid, way] : ways)
     {
       auto currentVertexPointerVector = way.get_vertex_pointer_vector();
-      ctx.call<void>("moveTo", currentVertexPointerVector.at(0)->get_x(), currentVertexPointerVector.at(0)->get_y());
+      ctx.call<void>("moveTo", pos_x(currentVertexPointerVector.at(0)->get_x(), canvasWidth), pos_y(currentVertexPointerVector.at(0)->get_y(), canvasHeight));
       for (const auto& vertexPointer : currentVertexPointerVector)
       {
-        ctx.call<void>("lineTo", vertexPointer->get_x(), vertexPointer->get_y());
+        ctx.call<void>("lineTo", pos_x(vertexPointer->get_x(), canvasWidth), pos_y(vertexPointer->get_y(), canvasHeight));
       }
     }
     ctx.call<void>("stroke");
@@ -314,10 +321,9 @@ public:
       auto& vertex0 = *(wayVertexPointerVector.at(floor));
       auto& vertex1 = *(wayVertexPointerVector.at(ceil));
       auto posX = (1 - decimal) * vertex0.get_x() + decimal * vertex1.get_x();
-      posX = (posX - minVertexX) / (maxVertexX - minVertexX) + minVertexX;
       auto posY = (1 - decimal) * vertex0.get_y() + decimal * vertex1.get_y();
-      posY = (posY - minVertexY) / (maxVertexY - minVertexY) + minVertexY;
-      std::cout << posX << " " << posY << "\n";
+      posX = pos_x(posX, canvasWidth);
+      posY = pos_y(posY, canvasHeight);
       ctx.call<void>("arc", posX, posY, 5, 0, 2 * std::numbers::pi);
       ctx.call<void>("stroke");
     }
